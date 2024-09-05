@@ -1,0 +1,1052 @@
+---
+title: "Team 8 project 2 - model building"
+author: "Team 8"
+# date: "today"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    code_folding: hide
+    number_sections: false
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+  #pdf_document:
+   # toc: yes
+    #toc_depth: '3'
+---
+
+```{r init, include=FALSE}
+# some of common options (and the defaults) are: 
+# include=T, eval=T, echo=T, results='hide'/'asis'/'markup',..., collapse=F, warning=T, message=T, error=T, cache=T, fig.width=6, fig.height=4, fig.dim=c(6,4) #inches, fig.align='left'/'center','right', 
+library(ezids)
+# knitr::opts_chunk$set(warning = F, results = "markup", message = F)
+knitr::opts_chunk$set(warning = F, message = F)
+options(scientific=T, digits = 3) 
+```
+
+```{r setup, include=FALSE}
+# some of common options (and the defaults) are: 
+# include=T, eval=T, echo=T, results='hide'/'asis'/'markup',..., collapse=F, warning=T, message=T, error=T, cache=T, fig.width=6, fig.height=4, fig.dim=c(6,4) #inches, fig.align='left'/'center','right', 
+knitr::opts_chunk$set(warning = F, results = "markup", message = F)
+# knitr::opts_chunk$set(warning = F, results = "hide", message = F)
+options(scientific=T, digits = 3) 
+# options(scipen=9, digits = 3) 
+# ‘scipen’: integer. 
+```
+
+
+Predicting patient outcomes is one of the most important components of the global healthcare industry. Anticipating a patient's probability of survival is crucial because it helps doctors make optimal choices and elevates the standard of medical care in general. We started Project 1 to explore the exciting field of patient survival prediction by analyzing a dataset named "Patient Survival Prediction". This dataset contains approximately 92,000 rows with roughly 190 columns. Prior to moving on to feature importance, partitioning the data for training and testing, and model development, we preprocessed (EDA) to clean the dataset. This comprises taking care of missing values & outliers, understanding the distribution of data and analyzing relationships between columns. Based on a number of factors, including heart rate, creatinine, bilirubin levels, etc., we will be able to ascertain if a patient survives or not by evaluating the dataset.
+
+By using the data to train an ML model and varying the test data, we can estimate the survival rate while taking into account the medical history of the patients. Since, our target variable is ‘hospital_death’, which is binary (0&1), employing classification models such as logistic regression is appropriate. This study issue is a real-world use case scenario because it will enable medical professionals to diagnose patients more accurately and efficiently by pinpointing their precise health state. People's lives and time can be saved by using this data and the model that is based on it. We may also deduce the importance and influence of intensive care units from this data and  determine whether or not they actually enhance patients' health.
+
+
+
+
+
+
+
+```{r}
+g<-read.csv("Dataset.csv")
+```
+
+
+
+Handling missing values
+For project 1, we have considered only 20 columns from the dataset to answer our SMART questions. In the second phase of the project which involves model building we have decided to include all of the 186 columns in the dataset. Since, we have not preprocessed the rest of the columns in project 1, we proceeded with the cleaning process first. Calculation of missing values in each column was done first. Missing values were replaced with NA’s for ease of understanding. We have employed multiple methods to handle the missing values. First step involves removing columns with more than twenty three percent of missing values from the dataset. This step was necessary as imputing a quarter of data would generate a reasonable amount of bias. 
+
+Next, shape of each column’s distribution was calculated to ensure whether to impute mean, median or mode in that particular column’s missing values. To achieve this, we had to loop through all the columns and generate histograms for each column. After understanding the distribution of the columns, imputation of mean was done to columns with normal (Gaussian) distribution (mean =  median), median to columns with skewed distribution (if left skewed, mean < median else mean > median) and mode in categorical columns respectively. We’ve experimented with cluster specific imputation and regression based imputations as well. But they were computationally intensive and were taking a long time to run, which is why we had to drop those methods.
+
+
+
+
+
+
+```{r}
+total_missing_values <- colSums(is.na(g) | g == "", na.rm = TRUE)
+#print(total_missing_values)
+
+columns_to_drop <- names(total_missing_values[total_missing_values > 21500])
+g <- g[, !(names(g) %in% columns_to_drop)]
+
+```
+
+
+```{r}
+#par(mfrow = c(2, 2))  # Set up a 2x2 grid for multiple plots
+for (col in names(g)) {
+  if (is.numeric(g[[col]])) {
+    hist(g[[col]], main = col, col = "lightblue", border = "black")
+    qqnorm(g[[col]], main = col)
+    qqline(g[[col]])
+  }
+}
+```
+
+
+```{r}
+library(dplyr)
+columns_to_convert <- c("arf_apache", "gcs_eyes_apache", "gcs_motor_apache", "gcs_unable_apache", "gcs_verbal_apache", "intubated_apache", "ventilated_apache", "aids", "cirrhosis", "diabetes_mellitus", "hepatic_failure", "immunosuppression", "leukemia", "lymphoma", "solid_tumor_with_metastasis", "ethnicity", "gender", "hospital_admit_source", "icu_admit_source", "apache_3j_bodysystem", "apache_2_bodysystem", "elective_surgery", "apache_post_operative", "icu_stay_type", "icu_type", "readmission_status")
+
+g <- g %>% mutate_at(vars(columns_to_convert), factor)
+```
+
+
+```{r}
+g[g == ""] <- NA
+
+factor_vars <- sapply(g, is.factor)
+
+for (col in names(g)[factor_vars]) {
+  mode_value <- names(sort(table(g[[col]]), decreasing = TRUE))[1]
+  g[[col]][is.na(g[[col]])] <- mode_value
+}
+numeric_columns_to_impute <- c("apache_2_diagnosis", "map_apache", "resprate_apache", "apache_4a_hospital_death_prob", "apache_4a_icu_death_prob")
+
+for (col in numeric_columns_to_impute) {
+  mode_val <- names(sort(table(g[[col]], useNA = "ifany"), decreasing = TRUE))[1]
+  g[[col]][is.na(g[[col]])] <- ifelse(is.na(g[[col]]), mode_val, g[[col]])
+}
+```
+
+
+```{r}
+columns_to_impute <- c("age", "bmi", "weight", "apache_3j_diagnosis", "glucose_apache", "d1_mbp_noninvasive_max", "d1_resprate_max", "d1_spo2_max", "d1_spo2_min", "d1_temp_max", "d1_temp_min", "h1_diasbp_max", "h1_diasbp_noninvasive_max", "h1_resprate_max", "h1_spo2_max", "h1_spo2_min", "d1_bun_max", "d1_bun_min", "d1_creatinine_max", "d1_creatinine_min", "d1_glucose_max", "d1_glucose_min", "d1_platelets_max", "d1_platelets_min", "d1_potassium_max", "d1_sodium_min", "bun_apache", "creatinine_apache")
+
+for (col in columns_to_impute) {
+  if (is.numeric(g[[col]])) {
+    median_value <- median(g[[col]], na.rm = TRUE)
+    g[[col]][is.na(g[[col]])] <- median_value
+  }
+}
+```
+
+
+```{r}
+columns_to_impute1 <- c("height", "heart_rate_apache", "temp_apache", "d1_diasbp_max", "d1_diasbp_min", "d1_diasbp_noninvasive_max", "d1_diasbp_noninvasive_min", "d1_heartrate_max", "d1_heartrate_min", "d1_mbp_max", "d1_mbp_min", "d1_mbp_noninvasive_min", "d1_resprate_min", "d1_sysbp_max", "d1_sysbp_min", "d1_sysbp_noninvasive_max", "d1_sysbp_noninvasive_min", "h1_diasbp_min", "h1_diasbp_noninvasive_min", "h1_heartrate_max", "h1_heartrate_min", "h1_mbp_max", "h1_mbp_min", "h1_mbp_noninvasive_max", "h1_mbp_noninvasive_min", " h1_resprate_min", "h1_sysbp_max", "h1_sysbp_min", "h1_sysbp_noninvasive_max", "h1_sysbp_noninvasive_min", "d1_calcium_max", "d1_calcium_min", "d1_hco3_max", "d1_hco3_min", "d1_hemaglobin_max", "d1_hemaglobin_min", "d1_hematocrit_max", "d1_hematocrit_min", "d1_potassium_min", "d1_sodium_max", "d1_wbc_max", "d1_wbc_min", "hematocrit_apache", "sodium_apache")
+
+# Loop through specified columns and impute mean
+for (col in columns_to_impute1) {
+  # Check if the column is numeric
+  if (is.numeric(g[[col]])) {
+    mean_value <- mean(g[[col]], na.rm = TRUE)
+    g[[col]][is.na(g[[col]])] <- mean_value
+  }
+}
+g[["h1_resprate_min"]][is.na(g[["h1_resprate_min"]])] <- mean(g[["h1_resprate_min"]], na.rm = TRUE)
+```
+
+```{r}
+if (any(is.na(g))) {
+  print("There are missing values in the dataset.")
+} else {
+  print("No missing values found in the dataset.")
+}
+```
+
+
+
+
+Feature Selection
+
+Feature selection is of one of the most important steps before building the model. Since, we have 186 independent variables, it was of high significance for us to make sure that we have chosen appropriate features for our model. Hence, to accomplish this we have employed four feature selection methods and have chosen features from these. The methods used are, Point Biserial correlation technique, chi-square test of independence, Lasso regularization based feature selection and regression based step-wise selection .
+
+
+Point biserial correlation method
+
+The point-biserial correlation coefficient is a measure of association that quantifies the strength and direction of the relationship between a continuous numerical variable and a binary (dichotomous) variable. In the context of feature importance methods, the point-biserial correlation is commonly used to assess the relationship between individual continuous features and a binary target variable.
+
+The provided code aims to evaluate the point-biserial correlation coefficients between each feature in the dataset 'g' and the binary target variable 'hospital_death.' First, the target variable is extracted from the dataset. Then, the script iterates through each feature, calculating the point-biserial correlation coefficient only for numeric features while handling non-numeric features appropriately, marking them as 'NA.' This step ensures that the analysis focuses on the relationship between continuous numerical features and the binary target variable. The correlation coefficients are stored in the 'correlation_with_target' vector. Finally, a threshold, in this case, an absolute correlation value greater than 0.1, is applied to select features deemed to have a meaningful association with the target variable. The names of the selected features are stored in the 'selected_features' vector, which can be printed or used for subsequent analyses. 
+
+This code provides a straightforward method for feature selection based on point-biserial correlation, helping to identify features with notable associations with the binary target variable. The correlation of 0.1 which is low is considered because we were aiming to capture features even with a small correlation as our’s is a hospital – patient dataset where every small things matter.
+
+
+
+
+
+```{r}
+binary_target <- g$hospital_death
+
+correlation_with_target <- sapply(names(g), function(feature) {
+  if (is.numeric(g[[feature]])) {
+    cor(g[[feature]], binary_target)
+  } else {
+    
+    NA
+  }
+})
+
+selected_features <- names(which(abs(correlation_with_target) > 0.1))
+
+print(selected_features)
+```
+
+
+
+Regression based step-wise selection
+
+Stepwise feature selection is a method used in statistical modeling to iteratively choose a subset of features that contribute most to the predictive performance of a model. It typically involves two main steps: forward selection and backward elimination. In forward selection, the algorithm starts with an empty set of features and adds the most informative variable at each step until a stopping criterion is met. In backward elimination, the algorithm begins with all features and removes the least significant ones based on statistical criteria. The process continues until the model's performance, often measured by criteria like AIC or BIC, is optimized. Stepwise feature selection helps enhance model interpretability, reduce overfitting, and improve computational efficiency by identifying a subset of features that collectively contribute to better predictive accuracy.
+
+The provided R code utilizes the MASS library, alongside dplyr and caret, to perform logistic regression with stepwise feature selection using the Akaike Information Criterion (AIC). The dataset 'g' undergoes preprocessing to exclude columns with less than two unique factor levels and convert binary factors to numeric format. Dummy variable transformation is applied to categorical predictors. Subsequently, logistic regression is conducted with a stepwise forward selection approach to identify relevant features associated with the binary target variable 'hospital_death.' The final model summary displays the selected features and their corresponding coefficients, providing insights into the significant predictors contributing to the binary classification 
+
+
+
+
+
+```{r}
+#library(MASS)
+#library(dplyr)
+#library(caret)
+
+#g <- g[, sapply(g, function(x) !(is.factor(x) && length(unique(x)) < 2))]
+
+#g <- g %>%
+#  mutate_if(function(x) is.factor(x) && length(unique(x)) == 2, function(x) as.numeric(as.factor(x)) - 1)
+
+
+#dummy_model <- dummyVars(" ~ .", data = g)
+#dataset_transformed <- predict(dummy_model, newdata = g)
+#dataset_transformed <- data.frame(dataset_transformed)
+#target <- g$hospital_death
+#predictors <- dataset_transformed[, names(dataset_transformed) != 'hospital_death']
+
+#model_data <- cbind(predictors, target)
+
+
+#set.seed(123) 
+#stepwise_model <- stepAIC(glm(target ~ ., data = model_data, family = binomial), 
+ #                         scope = list(lower = formula(glm(target ~ 1, data = model_data)), 
+#                                       upper = formula(glm(target ~ ., data = model_data))),
+#                          direction = "forward", 
+#                          trace = FALSE)
+#
+#summary(stepwise_model)
+```
+
+
+
+Chi squared test of independence
+
+The provided R code conducts a series of chi-square tests to assess the association between specific categorical features and the binary target variable 'hospital_death' in the dataframe 'g'. The features selected for testing include medical conditions and demographic factors.  For each feature in the 'features_to_test' vector, the code ensures it is treated as a factor variable and then performs a chi-square test using the chisq.test function. The results, including the chi-square statistic and p-value, are accumulated in a data frame named 'chi_square_results.'  The printed output displays the statistical results for each tested feature, showcasing the chi-square statistic, p-value, and the corresponding feature name. These results offer insights into the potential significance of individual features concerning the occurrence of 'hospital_death.' Lower p-values indicate stronger evidence against the null hypothesis of independence between the feature and the target variable. Overall, this approach helps identify features with potential predictive value for the binary outcome.
+
+
+
+
+```{r}
+library(dplyr)
+
+g$hospital_death <- as.factor(g$hospital_death)
+
+features_to_test <- c("arf_apache", "intubated_apache", "ventilated_apache", "aids", "cirrhosis", "diabetes_mellitus", "hepatic_failure", "immunosuppression", "leukemia", "lymphoma", "solid_tumor_with_metastasis",  "gender", "elective_surgery", "apache_post_operative",  "readmission_status") # replace with your actual feature names
+
+chi_square_results <- data.frame(Feature = character(), Chi_Square = numeric(), P_Value = numeric(), stringsAsFactors = FALSE)
+
+for (feature in features_to_test) {
+    if (feature %in% names(g)) {
+        
+        g[[feature]] <- as.factor(g[[feature]])
+
+        
+        test_result <- chisq.test(table(g[[feature]], g$hospital_death))
+
+        
+        chi_square_results <- rbind(chi_square_results, 
+                                    data.frame(Feature = feature, 
+                                               Chi_Square = test_result$statistic, 
+                                               P_Value = test_result$p.value))
+    }
+}
+
+print(chi_square_results)
+```
+
+
+
+
+Lasso regularization based feature selection
+
+The provided R code employs the glmnet package to perform Lasso (L1 regularization) logistic regression for feature selection in the context of predicting 'hospital_death.' A specific set of features, encompassing various medical and demographic variables, is pre-defined for inclusion in the model. The code ensures the presence of these features in the dataframe 'g' and proceeds to create a predictor matrix (X) and a response variable (y). The Lasso model is then fitted using cross-validation to determine the optimal regularization parameter (lambda) that minimizes cross-validated error. Subsequently, the model is refit with the chosen lambda, and the coefficients are extracted. The non-zero coefficients, indicative of the selected features, are identified and printed as the final result. This approach helps identify the most influential features for predicting hospital mortality while mitigating the impact of irrelevant or redundant variables through L1 regularization.
+
+
+
+
+
+```{r}
+library(glmnet)
+
+specific_features <- c("arf_apache", "intubated_apache", "ventilated_apache", "aids", "cirrhosis", "diabetes_mellitus", "hepatic_failure", "immunosuppression", "leukemia", "lymphoma", "solid_tumor_with_metastasis",  "gender", "elective_surgery", "apache_post_operative", "age","bun_apache","creatinine_apache", "hospital_admit_source", "icu_type", "icu_admit_source", "glucose_apache", "gcs_eyes_apache", "gcs_verbal_apache", "gcs_unable_apache", "icu_stay_type",
+ "heart_rate_apache",         "temp_apache",               "d1_diasbp_min",             "d1_diasbp_noninvasive_min",
+  "d1_heartrate_max",          "d1_mbp_min",                "d1_mbp_noninvasive_min",    "d1_resprate_max",          
+ "d1_spo2_min",               "d1_sysbp_min",              "d1_sysbp_noninvasive_min",  "d1_temp_min",              
+ "h1_diasbp_min",             "h1_diasbp_noninvasive_min", "h1_heartrate_max",          "h1_mbp_min",               
+ "h1_mbp_noninvasive_min",    "h1_resprate_max",           "h1_resprate_min",           "h1_spo2_min",              
+ "h1_sysbp_min",              "h1_sysbp_noninvasive_min",  "d1_bun_max",                "d1_bun_min",               
+ "d1_calcium_min",            "d1_creatinine_max",         "d1_creatinine_min",         "d1_hco3_max",              
+ "d1_hco3_min",               "d1_potassium_max",          "d1_wbc_max",                "d1_wbc_min", "map_apache")
+
+missing_features <- specific_features[!specific_features %in% names(g)]
+if (length(missing_features) > 0) {
+    print(paste("Error: The following features are missing in the dataframe 'g':", paste(missing_features, collapse = ", ")))
+} else {
+    X <- as.matrix(g[, specific_features])
+
+    y <- as.factor(g$hospital_death)
+
+    cv_lasso <- cv.glmnet(X, y, family = "binomial", alpha = 1)
+
+    best_lambda_lasso <- cv_lasso$lambda.min
+
+    final_lasso <- glmnet(X, y, family = "binomial", alpha = 1, lambda = best_lambda_lasso)
+
+    coef_lasso <- predict(final_lasso, s = best_lambda_lasso, type = "coefficients")
+
+    selected_features_lasso <- rownames(coef_lasso)[which(coef_lasso != 0)]
+
+    print("Selected Features from Lasso: ")
+    print(selected_features_lasso)
+}
+```
+
+
+Common feature extraction advantages
+
+The chosen feature selection methods offer distinct advantages in enhancing model interpretability, reducing dimensionality, and improving predictive accuracy. The Point Biserial correlation technique is effective in identifying linear relationships between continuous features and a binary target variable. The chi-square test excels at detecting associations between categorical features and the target. Lasso regularization not only selects relevant features but also imposes sparsity, mitigating multicollinearity and improving model generalization. Regression-based step-wise selection systematically refines the feature set by adding or removing variables based on statistical criteria, optimizing model performance. By extracting common features identified by these diverse techniques, we ensure a comprehensive and robust feature set that captures both linear and non-linear relationships, categorical associations, and penalizes irrelevant variables. This integrated approach contributes to a more informed and accurate model for predicting hospital mortality, leveraging the strengths of each method for a well-rounded feature selection strategy.
+
+
+
+Why didn’t we remove columns based on multicollinearity
+
+In the context of healthcare and patient data analysis, the decision to not prioritize the identification and removal of multicollinear variables is well-founded. Health data is characteristically interrelated, encapsulating complex biological, behavioral, and environmental factors that collectively influence health outcomes. The intrinsic correlations among these variables often hold significant clinical relevance, providing insights into the multifaceted nature of health and disease. Omitting variables based on multicollinearity concerns may inadvertently strip the dataset of critical information pertinent to understanding patient health. Furthermore, modern machine learning algorithms, especially tree-based models, are adept at handling correlated predictors. They can discern and leverage these relationships effectively without substantial detriment to the model’s performance. Hence, in a healthcare data analysis scenario, maintaining such interconnected variables is not only methodologically sound but also crucial for a holistic understanding of the health dynamics at play.
+
+
+
+
+
+
+```{r}
+selected_columns <- c("hospital_death", "arf_apache", "intubated_apache", "ventilated_apache", "aids", "cirrhosis", "diabetes_mellitus", "hepatic_failure", "immunosuppression", "leukemia", "lymphoma", "solid_tumor_with_metastasis",  "elective_surgery", "apache_post_operative",
+ "heart_rate_apache",         "temp_apache",               "d1_diasbp_min",             "d1_diasbp_noninvasive_min",
+  "d1_heartrate_max",          "d1_mbp_min",                "d1_mbp_noninvasive_min",    "d1_resprate_max",          
+ "d1_spo2_min",               "d1_sysbp_min",              "d1_sysbp_noninvasive_min",  "d1_temp_min",              
+ "h1_diasbp_min",             "h1_diasbp_noninvasive_min", "h1_heartrate_max",          "h1_mbp_min",               
+ "h1_mbp_noninvasive_min",    "h1_resprate_max",           "h1_resprate_min",           "h1_spo2_min",              
+ "h1_sysbp_min",              "h1_sysbp_noninvasive_min",  "d1_bun_max",                "d1_bun_min",               
+ "d1_calcium_min",            "d1_creatinine_max",         "d1_creatinine_min",         "d1_hco3_max",              
+ "d1_hco3_min",               "d1_potassium_max",          "d1_wbc_max",                "d1_wbc_min", "map_apache"  )
+
+new_dataframe2 <- g[, selected_columns, drop = FALSE]
+```
+
+
+Encoding categorical columns
+
+The code snippet provided performs one-hot encoding on the specified categorical columns in the "new_dataframe2" dataset. Categorical columns such as "ethnicity," "gender," and others are selected for encoding. The model.matrix function is used to convert these categorical columns into a binary matrix, where each unique category becomes a binary column. The "- 1" in the formula ensures that no intercept term is included. The result is stored in the "encoded_data" data frame. Finally, the non-categorical columns from "new_dataframe2" are appended to the one-hot encoded data, resulting in an updated dataset, "new_dataframe2," with the categorical variables transformed into a format suitable for machine learning model training. This preprocessing step is essential to ensure that the model can effectively interpret and utilize categorical information during training.
+
+
+
+
+
+```{r}
+categorical_columns <- c("ethnicity", "gender", "hospital_admit_source", "icu_admit_source", "apache_3j_bodysystem", "apache_2_bodysystem", "icu_stay_type", "icu_type")
+
+encoded_data <- model.matrix(~ . - 1, data = g[, categorical_columns])
+
+encoded_data <- as.data.frame(encoded_data)
+
+new_dataframe2 <- cbind(new_dataframe2, encoded_data)
+```
+
+
+```{r}
+#head(new_dataframe)
+columns_to_append <- c("bmi",  "gcs_eyes_apache", "gcs_motor_apache", "gcs_unable_apache", "gcs_verbal_apache"
+                       
+                       )
+
+new_dataframe2 <- cbind(new_dataframe2, g[, columns_to_append, drop = FALSE])
+```
+
+
+
+
+Logistic regression
+
+The provided code segment demonstrates the training and evaluation of a logistic regression model using the caret and glmnet libraries. The dataset, "new_dataframe2," is split into training and testing sets (80/20 split), and a logistic regression model is trained using the glmnet function. Predictions are then made on the testing set, and the predicted probabilities for the positive class are extracted. A threshold of 0.5 is applied to convert these probabilities into binary predictions. The code evaluates the model's performance by generating a confusion matrix and calculating accuracy. If the lengths of the vectors match, the confusion matrix and accuracy are printed. This process ensures an assessment of the logistic regression model's predictive ability on the given dataset.
+
+
+
+```{r}
+library(caret)
+set.seed(123)
+
+split_index <- createDataPartition(new_dataframe2$hospital_death, p = 0.8, list = FALSE)
+training_data <- new_dataframe2[split_index, ]
+testing_data <- new_dataframe2[-split_index, ]
+
+library(glmnet)
+
+model <- glmnet(
+  as.matrix(training_data[, -which(names(training_data) %in% c("hospital_death"))]),
+  as.factor(training_data$hospital_death),
+  family = "binomial"
+)
+
+predictions <- predict(
+  model,
+  newx = as.matrix(testing_data[, -which(names(testing_data) %in% c("hospital_death"))]),
+  type = "response"
+)
+
+# Extract the predicted probabilities for the positive class
+positive_class_prob <- predictions[, 2]
+
+# Convert predicted probabilities to binary predictions
+binary_predictions <- ifelse(positive_class_prob > 0.5, 1, 0)
+
+if (length(binary_predictions) == nrow(testing_data)) {
+  # Evaluate model performance
+  confusion_matrix <- table(binary_predictions, testing_data$hospital_death)
+  accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+  print(confusion_matrix)
+  print(paste("Accuracy:", accuracy))
+} else {
+  print("Lengths of vectors do not match.")
+}
+```
+
+
+
+Decision tree before tuning 
+
+The decision tree model, illustrated in the provided code, offers distinct advantages over logistic regression, particularly in scenarios where the relationships between predictors and the response are non-linear and complex. Decision trees excel at capturing intricate patterns and interactions within the data, providing a more flexible and interpretable framework. Unlike logistic regression, decision trees inherently perform feature selection during the model-building process, promoting simplicity and potentially preventing overfitting by prioritizing the most informative variables. Additionally, decision trees are adept at handling various data types and are robust to outliers.
+
+In this R code snippet, a decision tree model is constructed using the 'rpart' package for binary classification. The dataset is preprocessed by converting the target variable, 'hospital_death,' into a factor in both the training and testing sets. The decision tree model is trained on the training data using the 'rpart' function, and predictions are then generated on the testing dataset. Subsequently, a confusion matrix is computed and displayed, offering insights into the model's performance in terms of true positives, true negatives, false positives, and false negatives. The accuracy of the model is calculated from the confusion matrix, providing a measure of its overall predictive capability. Additionally, the 'rpart.plot' package is employed to visualize the decision tree, enhancing interpretability. This comprehensive workflow allows for a thorough evaluation of the decision tree model's effectiveness in classifying instances of hospital mortality.
+
+
+
+
+```{r}
+
+#install.packages("rpart")
+library(rpart)
+
+training_data$hospital_death <- as.factor(training_data$hospital_death)
+testing_data$hospital_death <- as.factor(testing_data$hospital_death)
+
+model_tree <- rpart(hospital_death ~ ., data = training_data, method = "class")
+
+predictions_tree <- predict(model_tree, newdata = testing_data, type = "class")
+
+conf_matrix_tree <- table(predictions_tree, testing_data$hospital_death)
+print("Confusion Matrix:")
+print(conf_matrix_tree)
+
+accuracy_tree <- sum(diag(conf_matrix_tree)) / sum(conf_matrix_tree)
+cat("Accuracy:", accuracy_tree, "\n")
+
+#install.packages("rpart.plot")
+#library(rpart.plot)
+#rpart.plot(model_tree)
+
+```
+
+
+```{r}
+accuracies <- c(accuracy, accuracy_tree)
+
+model_names <- c("GLM", "Decision Tree")
+
+barplot(accuracies, names.arg = model_names, col = c("blue", "red"), main = "Model Accuracies", ylab = "Accuracy", ylim = c(0, 1))
+
+text(1:length(accuracies), accuracies, labels = round(accuracies, 2), pos = 3, col = "black")
+
+legend("topright", legend = model_names, fill = c("blue", "red"), inset = c(0.01, 0.09))
+
+```
+
+
+
+
+Addressing class imbalance in target variable
+
+Addressing class imbalance is crucial in binary classification tasks to ensure that machine learning models do not favor the majority class and exhibit biased predictions. In the provided analysis, the recognition of imbalanced classes in the 'hospital_death' variable prompted the application of two class imbalance techniques: SMOTE (Synthetic Minority Over-sampling Technique) and ROSE (Random Over-Sampling Examples). These methods generate synthetic instances of the minority class, thus augmenting the training data and mitigating the impact of class imbalance on model performance. By employing SMOTE and ROSE, the models become more adept at learning patterns within the minority class, enhancing their ability to make accurate predictions for both classes. This proactive approach to handling class imbalance contributes to more reliable and fair model outcomes, ensuring that the model does not disproportionately favor the majority class and providing more robust predictions across both classes.
+
+SMOTE
+
+The Synthetic Minority Over-sampling Technique (SMOTE) is a resampling method designed to address class imbalance by generating synthetic instances of the minority class. In the provided code, SMOTE is applied to the 'hospital_death' variable, which is the target binary outcome. The initial step involves converting integer and character columns to numeric format, excluding the target variable, to ensure compatibility with the SMOTE algorithm. SMOTE operates by identifying instances of the minority class (in this case, cases where 'hospital_death' equals 1) and creating synthetic samples by interpolating between neighboring minority instances. The 'perc.over' parameter controls the extent of oversampling, and the 'k' parameter determines the number of nearest neighbors to consider during the interpolation process. The result is a rebalanced dataset that includes synthetic instances of the minority class, ensuring a more equitable representation for improved model training. This strategic augmentation aids in mitigating the impact of class imbalance, enhancing the model's ability to make accurate predictions for both classes.
+
+
+
+
+
+```{r}
+library(DMwR)
+
+target_variable <- "hospital_death"
+
+int_cols <- sapply(g, is.integer) & names(g) != target_variable
+char_cols <- sapply(g, is.character)
+g[, int_cols | char_cols] <- lapply(g[, int_cols | char_cols], as.numeric)
+
+factor_cols <- sapply(g, is.factor) & names(g) != target_variable
+numeric_data <- g[, !factor_cols]
+
+print(table(g[, target_variable]))
+
+balanced_data <- tryCatch({
+    SMOTE(as.formula(paste(target_variable, "~ .")), data = numeric_data, perc.over = 400, k = 5)
+}, error=function(e) {
+    print(e)
+})
+
+if (!inherits(balanced_data, "error")) {
+    new_distribution <- table(balanced_data[, target_variable])
+    print(new_distribution)
+    print(nrow(balanced_data))
+} else {
+    print("Error in applying SMOTE")
+}
+
+```
+
+
+```{r}
+factor_cols <- sapply(g, is.factor)
+for(col in names(g)[factor_cols]) {
+    set.seed(123)  
+    additional_factor_data <- sample(g[[col]], nrow(balanced_data) - nrow(g), replace = TRUE)
+    balanced_data[[col]] <- c(g[[col]], additional_factor_data)
+}
+#str(balanced_data)
+```
+
+
+
+```{r}
+
+selected_columns <- c("hospital_death", "arf_apache", "intubated_apache", "ventilated_apache", "aids", "cirrhosis", "diabetes_mellitus", "hepatic_failure", "immunosuppression", "leukemia", "lymphoma", "solid_tumor_with_metastasis",  "elective_surgery", "apache_post_operative",
+ "heart_rate_apache",         "temp_apache",               "d1_diasbp_min",             "d1_diasbp_noninvasive_min",
+  "d1_heartrate_max",          "d1_mbp_min",                "d1_mbp_noninvasive_min",    "d1_resprate_max",          
+ "d1_spo2_min",               "d1_sysbp_min",              "d1_sysbp_noninvasive_min",  "d1_temp_min",              
+ "h1_diasbp_min",             "h1_diasbp_noninvasive_min", "h1_heartrate_max",          "h1_mbp_min",               
+ "h1_mbp_noninvasive_min",    "h1_resprate_max",           "h1_resprate_min",           "h1_spo2_min",              
+ "h1_sysbp_min",              "h1_sysbp_noninvasive_min",  "d1_bun_max",                "d1_bun_min",               
+ "d1_calcium_min",            "d1_creatinine_max",         "d1_creatinine_min",         "d1_hco3_max",              
+ "d1_hco3_min",               "d1_potassium_max",          "d1_wbc_max",                "d1_wbc_min", "map_apache", "bmi",  "gcs_eyes_apache", "gcs_motor_apache", "gcs_unable_apache", "gcs_verbal_apache"  )
+
+# Create a new dataframe with selected columns
+new_dataframe3 <- balanced_data[, selected_columns, drop = FALSE]
+```
+
+
+```{r}
+
+categorical_columns <- c("ethnicity", "gender", "hospital_admit_source", "icu_admit_source", "apache_3j_bodysystem", "apache_2_bodysystem", "icu_stay_type", "icu_type")
+
+# Encode categorical variables using one-hot encoding
+encoded_data1 <- model.matrix(~ . - 1, data = balanced_data[, categorical_columns])
+
+# Convert the encoded data to a data frame
+encoded_data1 <- as.data.frame(encoded_data1)
+
+
+# Append non-categorical columns to the encoded data
+new_dataframe3 <- cbind(new_dataframe3, encoded_data1)
+```
+
+
+```{r}
+# Split the data into training and testing sets (80/20 split)
+split_index <- createDataPartition(new_dataframe3$hospital_death, p = 0.8, list = FALSE)
+training_data3 <- new_dataframe3[split_index, ]
+testing_data3 <- new_dataframe3[-split_index, ]
+
+```
+
+
+```{r}
+library(rpart)
+
+training_data3$hospital_death <- as.factor(training_data3$hospital_death)
+testing_data3$hospital_death <- as.factor(testing_data3$hospital_death)
+
+model_tree <- rpart(hospital_death ~ ., data = training_data3, method = "class")
+
+predictions_tree <- predict(model_tree, newdata = testing_data3, type = "class")
+
+conf_matrix_tree <- table(predictions_tree, testing_data3$hospital_death)
+print("Confusion Matrix:")
+print(conf_matrix_tree)
+
+accuracy_tree <- sum(diag(conf_matrix_tree)) / sum(conf_matrix_tree)
+cat("Accuracy:", accuracy_tree, "\n")
+```
+
+
+ROSE
+
+Embracing the ROSE (Random Over-Sampling Examples) technique involves leveraging the caret package to partition the dataset into training and testing sets. The essence of ROSE lies in its capacity to strategically oversample the minority class, 'hospital_death' in this context, by introducing synthetic instances with controlled randomness. The ROSE algorithm employs a proximity-based approach to generate synthetic examples, ensuring a nuanced and realistic representation of the minority class distribution. Unlike traditional oversampling methods, ROSE's controlled randomness captures the intricacies of the minority class, enhancing the quality of the synthetic instances. The decision to prefer ROSE over alternatives like SMOTE is rooted in its ability to address class imbalance nuances effectively. This tailored strategy aligns with the unique characteristics of the dataset, promoting a more accurate and robust model.
+
+
+
+
+
+```{r}
+library(ROSE)
+library(caret)  
+
+g[ ,sapply(g, is.character)] <- lapply(g[ ,sapply(g, is.character)], as.factor)
+
+set.seed(123)  
+splitIndex <- createDataPartition(g$hospital_death, p = .80, list = FALSE, times = 1)
+training_set <- g[splitIndex, ]
+testing_set <- g[-splitIndex, ]
+
+rose_data <- ROSE(hospital_death ~ ., data = training_set, seed = 1)$data
+
+table(rose_data$hospital_death)
+
+```
+
+
+```{r}
+selected_columns <- c("hospital_death", "arf_apache", "intubated_apache", "ventilated_apache", "aids", "cirrhosis", "diabetes_mellitus", "hepatic_failure", "immunosuppression", "leukemia", "lymphoma", "solid_tumor_with_metastasis",  "elective_surgery", "apache_post_operative",
+ "heart_rate_apache",         "temp_apache",               "d1_diasbp_min",             "d1_diasbp_noninvasive_min",
+  "d1_heartrate_max",          "d1_mbp_min",                "d1_mbp_noninvasive_min",    "d1_resprate_max",          
+ "d1_spo2_min",               "d1_sysbp_min",              "d1_sysbp_noninvasive_min",  "d1_temp_min",              
+ "h1_diasbp_min",             "h1_diasbp_noninvasive_min", "h1_heartrate_max",          "h1_mbp_min",               
+ "h1_mbp_noninvasive_min",    "h1_resprate_max",           "h1_resprate_min",           "h1_spo2_min",              
+ "h1_sysbp_min",              "h1_sysbp_noninvasive_min",  "d1_bun_max",                "d1_bun_min",               
+ "d1_calcium_min",            "d1_creatinine_max",         "d1_creatinine_min",         "d1_hco3_max",              
+ "d1_hco3_min",               "d1_potassium_max",          "d1_wbc_max",                "d1_wbc_min", "map_apache", "bmi",  "gcs_eyes_apache", "gcs_motor_apache", "gcs_unable_apache", "gcs_verbal_apache"  )
+
+# Create a new dataframe with selected columns
+new_dataframe4 <- rose_data[, selected_columns, drop = FALSE]
+```
+
+
+
+```{r}
+
+categorical_columns <- c("ethnicity", "gender", "hospital_admit_source", "icu_admit_source", "apache_3j_bodysystem", "apache_2_bodysystem", "icu_stay_type", "icu_type")
+
+encoded_data2 <- model.matrix(~ . - 1, data = rose_data[, categorical_columns])
+
+encoded_data2 <- as.data.frame(encoded_data2)
+
+new_dataframe4 <- cbind(new_dataframe4, encoded_data2)
+```
+
+
+
+```{r}
+split_index <- createDataPartition(new_dataframe4$hospital_death, p = 0.8, list = FALSE)
+training_data4 <- new_dataframe4[split_index, ]
+testing_data4 <- new_dataframe4[-split_index, ]
+
+```
+
+
+```{r}
+
+library(rpart)
+
+training_data4$hospital_death <- as.factor(training_data4$hospital_death)
+testing_data4$hospital_death <- as.factor(testing_data4$hospital_death)
+
+model_tree <- rpart(hospital_death ~ ., data = training_data4, method = "class")
+
+predictions_tree <- predict(model_tree, newdata = testing_data4, type = "class")
+
+conf_matrix_tree <- table(predictions_tree, testing_data4$hospital_death)
+print("Confusion Matrix:")
+print(conf_matrix_tree)
+
+accuracy_tree <- sum(diag(conf_matrix_tree)) / sum(conf_matrix_tree)
+cat("Accuracy:", accuracy_tree, "\n")
+
+```
+
+
+```{r}
+library(caret)
+library(rpart)
+
+names(training_data4) <- make.names(names(training_data4), unique = TRUE)
+names(testing_data4) <- make.names(names(testing_data4), unique = TRUE)
+
+if (any(is.na(training_data4)) || any(is.na(testing_data4))) {
+    stop("NA values found in the datasets")
+}
+
+set.seed(123)
+tuned_model <- train(hospital_death ~ ., 
+                     data = training_data4, 
+                     method = "rpart",
+                     trControl = trainControl(method = "cv", number = 10),
+                     tuneGrid = expand.grid(.cp = seq(0.01, 0.05, by = 0.02)))
+
+predictions <- predict(tuned_model, newdata = testing_data4)
+
+conf_matrix <- confusionMatrix(predictions, testing_data4$hospital_death)
+
+print(conf_matrix$table)
+
+tp <- conf_matrix$table[2, 2]  # True Positives
+tn <- conf_matrix$table[1, 1]  # True Negatives
+fp <- conf_matrix$table[1, 2]  # False Positives
+fn <- conf_matrix$table[2, 1]  # False Negatives
+
+cat("True Positives (TP):", tp, "\n")
+cat("True Negatives (TN):", tn, "\n")
+cat("False Positives (FP):", fp, "\n")
+cat("False Negatives (FN):", fn, "\n")
+
+accuracy <- sum(diag(conf_matrix$table)) / sum(conf_matrix$table)
+precision <- tp / (tp + fp)
+recall <- tp / (tp + fn)
+
+cat("Accuracy:", accuracy, "\n")
+cat("Precision:", precision, "\n")
+cat("Recall:", recall, "\n")
+
+```
+
+
+```{r}
+#library(pROC)
+
+#prob_predictions <- predict(tuned_model, newdata = testing_data4, type = "prob")
+
+#prob_positive_class <- prob_predictions[, "X1"]
+
+#roc_result <- roc(testing_data4$hospital_death, prob_positive_class)
+#auc_value <- auc(roc_result)
+
+#print(auc_value)
+
+```
+
+
+
+CONCLUSIONS
+
+DECISION TREE AFTER ROSE OVER SAMPLING AND HYPER PARAMETER TUNING PROVIDED THE BEST PERFORMANCE METRICS.
+
+
+
+
+
+
+SMART QUESTIONS
+
+
+1- How does the presence of diabetes mellitus correlate with age? Is diabetes a risk factor for hospital
+death in older patients, and does age significantly impact the chance of developing diabetes?
+{r setup, include=FALSE}
+library(dplyr)
+
+# Check the structure of the dataset
+str(hospital_data)
+correlation_age_diabetes <- cor(hospital_data$age, hospital_data$diabetes_mellitus)
+cat("Correlation between Age and Diabetes Mellitus:", correlation_age_diabetes, "\n")
+hospital_data <- hospital_data %>%
+  mutate(age_group = ifelse(age >= 65, "Older", "Younger"))
+cross_table <- table(hospital_data$diabetes_mellitus, hospital_data$age_group, hospital_data$hospital_death)
+print(cross_table)
+
+correlation_age_diabetes <- cor(hospital_data$age, hospital_data$diabetes_mellitus)
+cat("Correlation between Age and Diabetes Mellitus:", correlation_age_diabetes, "\n")
+hospital_data <- hospital_data[!is.na(hospital_data$age) & is.numeric(hospital_data$age), ]
+logistic_model <- glm(hospital_death ~ age + diabetes_mellitus, data = hospital_data, family = "binomial")
+
+# Create a sequence of ages for plotting purposes
+age_seq <- seq(min(hospital_data$age), max(hospital_data$age), length.out = 100)
+
+# Create a data frame for predictions
+new_data <- expand.grid(age = age_seq, diabetes_mellitus = c(0, 1))
+
+# Predict probabilities
+new_data$predicted_prob <- predict(logistic_model, newdata = new_data, type = "response")
+
+# Plot logistic regression curve with scatter plot
+library(ggplot2)
+
+ggplot(hospital_data, aes(x = age, y = hospital_death)) +
+  geom_point(aes(color = factor(diabetes_mellitus)), alpha = 0.6) +
+  geom_line(data = new_data, aes(y = predicted_prob), color = "blue", size = 1) +
+  scale_color_discrete(name = "Diabetes Mellitus") +
+  labs(x = "Age", y = "Hospital Death Probability") +
+  ggtitle("Logistic Regression: Probability of Hospital Death by Age and Diabetes Mellitus") +
+  theme_minimal()
+
+# Fit logistic regression model
+logistic_model <- glm(hospital_death ~ age + diabetes_mellitus, data = hospital_data, family = "binomial")
+summary(logistic_model)
+
+
+2- Are there any particular illnesses or risk factors (such as leukemia, cirrhosis, or diabetes mellitus) that
+are closely linked to hospital deaths?
+
+{r}
+selected_columns <- hospital_data %>%
+  select(hospital_death, leukemia, cirrhosis, diabetes_mellitus)
+model_leukemia <- glm(hospital_death ~ leukemia, data = selected_columns, family = "binomial")
+model_cirrhosis <- glm(hospital_death ~ cirrhosis, data = selected_columns, family = "binomial")
+model_diabetes <- glm(hospital_death ~ diabetes_mellitus, data = selected_columns, family = "binomial")
+
+summary(model_leukemia)
+summary(model_cirrhosis)
+summary(model_diabetes)
+
+library(ggplot2)
+library(dplyr)
+
+# Select relevant columns for analysis (e.g., leukemia, cirrhosis, diabetes_mellitus, hospital_death)
+selected_data <- hospital_data %>%
+  select(leukemia, cirrhosis, diabetes_mellitus, hospital_death)  # Update column names as needed
+
+# Calculate hospital death rates for each condition
+death_rates <- selected_data %>%
+  group_by(leukemia, cirrhosis, diabetes_mellitus) %>%
+  summarize(death_rate = mean(hospital_death == 1))
+
+# Reshape the data for plotting
+death_rates_long <- death_rates %>%
+  pivot_longer(cols = c(leukemia, cirrhosis, diabetes_mellitus),
+               names_to = "Condition",
+               values_to = "Death_Rate")
+
+# Create a bar plot showing death rates for different conditions
+ggplot(death_rates_long, aes(x = Condition, y = Death_Rate, fill = Condition)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Condition", y = "Hospital Death Rate", title = "Hospital Death Rates by Condition") +
+  theme_minimal()
+
+3- Which underlying medical disorders account for the majority of hospital deaths among patients over the
+age of 70? Are there any trends in the kinds of illnesses that cause death in this particular age range?
+{r}
+
+library(ggplot2)
+library(dplyr)
+
+# Filter data for patients over the age of 70 who experienced hospital death
+older_patients_death <- hospital_data %>%
+  filter(age > 70, hospital_death == 1)
+
+# Select relevant columns related to medical disorders or conditions (modify as needed)
+selected_columns <- older_patients_death %>%
+  select(diabetes_mellitus, cirrhosis, leukemia, heart_rate_apache,glucose_apache)  # Add other relevant columns
+
+# Calculate the count of each medical condition
+condition_counts <- selected_columns %>%
+  summarise_all(sum) %>%
+  pivot_longer(cols = everything(), names_to = "Condition", values_to = "Count")
+
+# Create a bar plot to visualize medical conditions among deceased patients over 70
+ggplot(condition_counts, aes(x = reorder(Condition, -Count), y = Count, fill = Condition)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Medical Condition", y = "Count", title = "Medical Conditions among Deceased Patients over 70") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+4- What is the mortality rate in the dataset between patients under 65 and those above 65? Are the
+causes of death for these age groups significantly different from one another?
+
+{r}
+library(dplyr)
+
+# Calculate mortality rates for patients under 65 and above 65
+hospital_data$age_group <- ifelse(hospital_data$age < 65, "Under 65", "Above 65")
+
+# Check the structure of 'cause_of_death_column' to ensure it has the same length as other columns
+str(hospital_data$cause_of_death_column)
+
+
+
+# Perform chi-squared test for independence
+chi_square_test <- chisq.test(contingency_table)
+print(chi_square_test)
+
+ggplot(mortality_rates, aes(x = age_group, y = mortality_rate, fill = age_group)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Age Group", y = "Mortality Rate", title = "Mortality Rates by Age Group") +
+  theme_minimal()
+
+
+
+5- Which ICU types are most prevalent in the dataset, and does the type of ICU affect the risk of hospital
+death?
+
+{r}
+
+library(dplyr)
+
+# Calculate frequency of each ICU type
+icu_type_counts <- hospital_data %>%
+  group_by(icu_type) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+# Display ICU type counts
+print(icu_type_counts)
+
+death_rates_by_icu <- hospital_data %>%
+  group_by(icu_type) %>%
+  summarise(death_rate = mean(hospital_death == 1, na.rm = TRUE))
+
+# Display hospital death rates by ICU type
+print(death_rates_by_icu)
+
+library(ggplot2)
+
+ggplot(death_rates_by_icu, aes(x = icu_type, y = death_rate)) +
+  geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+  labs(x = "ICU Type", y = "Hospital Death Rate", title = "Hospital Death Rates by ICU Type") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+6- What differences exist between patients who survive and those who do not in terms of the distribution
+of "BMI" (body mass index)? Does a person's BMI have any bearing on hospital mortality?
+
+{r}
+survived_bmi <- hospital_data$hospital_death == 0  # Assuming 0 represents survived patients
+not_survived_bmi <- hospital_data$hospital_death == 1  # Assuming 1 represents not survived patients
+
+summary(hospital_data$BMI[survived_bmi])  # Summary stats for survived patients' BMI
+summary(hospital_data$BMI[not_survived_bmi])  # Summary stats for not survived patients' BMI
+
+boxplot(bmi ~ hospital_death, data = hospital_data, xlab = "Hospital Mortality", ylab = "BMI")
+
+t_test_result <- t.test(hospital_data$bmi[survived_bmi], hospital_data$BMI[not_survived_bmi])
+print(t_test_result)
+
+7 - Are there significant differences in the distribution of vital signs (heart rate, glucose level) between different ethnic groups in the dataset?
+{r}
+library(dplyr)
+library(ggplot2)
+
+# Subset the dataset with relevant columns
+subset_data <- hospital_data %>%
+  select(ethnicity, heart_rate_apache, glucose_apache)
+
+# Boxplot visualization of heart rate by ethnicity
+ggplot(subset_data, aes(x = ethnicity, y = heart_rate_apache)) +
+  geom_boxplot() +
+  labs(x = "Ethnicity", y = "Heart Rate") +
+  ggtitle("Distribution of Heart Rate by Ethnicity")
+
+# Boxplot visualization of glucose level by ethnicity
+ggplot(subset_data, aes(x = ethnicity, y = glucose_apache)) +
+  geom_boxplot() +
+  labs(x = "Ethnicity", y = "Glucose Level") +
+  ggtitle("Distribution of Glucose Level by Ethnicity")
+
+# Perform statistical tests (e.g., ANOVA or Kruskal-Wallis) to compare vital signs among ethnic groups
+# For heart rate:
+heart_rate_anova <- aov(heart_rate_apache ~ ethnicity, data = subset_data)
+print(summary(heart_rate_anova))  # ANOVA test
+
+# For glucose level:
+glucose_kruskal <- kruskal.test(glucose_apache ~ ethnicity, data = subset_data)
+print(glucose_kruskal)
+
+8- How does the prevalence of specific pre-existing conditions (diabetes, cirrhosis, leukemia) vary among different age groups, and is there a correlation between age and the occurrence of these conditions?
+{r}
+library(dplyr)
+library(ggplot2)
+library(tidyr) 
+
+# Select relevant columns for analysis
+subset_data <- hospital_data %>%
+  select(age, diabetes_mellitus, cirrhosis, leukemia)
+
+# Calculate prevalence of each condition by age group
+age_groups <- cut(subset_data$age, breaks = c(0, 18, 40, 60, 80, 100), labels = c("0-18", "19-40", "41-60", "61-80", "81-100"))
+subset_data <- subset_data %>%
+  mutate(age_group = age_groups)
+
+# Calculate the proportion of each condition within each age group
+condition_prevalence <- subset_data %>%
+  group_by(age_group) %>%
+  summarize(
+    diabetes_prevalence = mean(diabetes_mellitus),
+    cirrhosis_prevalence = mean(cirrhosis),
+    leukemia_prevalence = mean(leukemia)
+  )
+
+# Plotting condition prevalence by age group
+condition_plot <- gather(condition_prevalence, condition, prevalence, -age_group) %>%
+  ggplot(aes(x = age_group, y = prevalence, fill = condition)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "Age Group", y = "Prevalence", fill = "Condition") +
+  ggtitle("Prevalence of Conditions by Age Group") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+print(condition_plot)
+
+# Correlation analysis between age and conditions
+correlation_matrix <- cor(subset_data[, c("age", "diabetes_mellitus", "cirrhosis", "leukemia")])
+print(correlation_matrix)
+
+9- Can we analyze the trends in hospital mortality rates over time? Is there a noticeable change or improvement in mortality rates in recent years?
+{r}
+library(dplyr)
+library(ggplot2)
+
+# Assuming there's a timestamp column indicating admission or discharge time
+# Convert timestamp to a Date format if needed
+hospital_data$timestamp <- seq(as.Date("2020-01-01"), by = "1 day", length.out = nrow(hospital_data))  # Replace 'timestamp' with the actual column name
+
+# Calculate hospital mortality rate per year
+mortality_rate <- hospital_data %>%
+  mutate(year = lubridate::year(timestamp)) %>%  # Extract year from the timestamp
+  group_by(year) %>%
+  summarize(
+    mortality_rate = mean(hospital_death)  # Calculate mean hospital mortality rate per year
+  )
+
+# Plotting the trend of hospital mortality rates over time
+mortality_plot <- ggplot(mortality_rate, aes(x = year, y = mortality_rate)) +
+  geom_line() +
+  labs(x = "Year", y = "Mortality Rate", title = "Trends in Hospital Mortality Rates Over Time")
+
+print(mortality_plot)
+
+10 - Are there specific combinations of pre-existing conditions or a particular set of vital signs that indicate a higher likelihood of hospital mortality?
+
+library(dplyr)
+
+library(caret)
+
+colnames(hospital_data)
+head(hospital_data)
+# Select relevant columns for analysis (pre-existing conditions and vital signs)
+subset_data <- hospital_data %>%
+  select(age, gender, diabetes_mellitus, cirrhosis, heart_rate_apache, glucose_apache, hospital_death) # Add more vital signs or conditions as needed
+
+# Handle missing values if any
+subset_data <- na.omit(subset_data)
+
+# Split data into training and testing sets
+set.seed(123)
+trainIndex <- createDataPartition(subset_data$hospital_death, p = 0.7, list = FALSE)
+train_data <- subset_data[trainIndex, ]
+test_data <- subset_data[-trainIndex, ]
+
+# Fit logistic regression model
+logistic_model <- glm(hospital_death ~ ., data = train_data, family = "binomial")
+
+# Summary of the model
+summary(logistic_model)
+
+# Predict hospital mortality on test data
+predicted <- predict(logistic_model, newdata = test_data, type = "response")
+
+# Evaluate model performance (e.g., using AUC-ROC)
+library(pROC)
+auc_score <- roc(test_data$hospital_death, predicted)
+print(auc_score)
+
+
+
+
